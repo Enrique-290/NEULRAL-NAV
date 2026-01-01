@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>NeuralNav PWA</title>
+  <meta name="theme-color" content="#0b1220" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Crect width='128' height='128' rx='28' fill='%230b1220'/%3E%3Cpath d='M64 22c16 0 29 13 29 29 0 23-29 55-29 55S35 74 35 51c0-16 13-29 29-29zm0 18a11 11 0 100 22 11 11 0 000-22z' fill='%23ffffff'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <style>
+    :root{
+      --bg:#0b1220; --card:#0f1b33; --muted:#9fb0d0; --text:#eaf0ff; --ok:#36d399; --warn:#fbbf24; --bad:#fb7185;
+      --border: rgba(255,255,255,.12);
+    }
+    *{box-sizing:border-box}
+    body{margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background:var(--bg); color:var(--text);}
+    header{position:sticky; top:0; z-index:5; padding:12px 12px 10px; background:linear-gradient(180deg, rgba(11,18,32,.95), rgba(11,18,32,.65)); backdrop-filter: blur(10px); border-bottom:1px solid var(--border);}
+    .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
+    .pill{font-size:12px; color:var(--muted); border:1px solid var(--border); border-radius:999px; padding:6px 10px; background:rgba(255,255,255,.04)}
+    .btn{cursor:pointer; border:1px solid var(--border); background:rgba(255,255,255,.06); color:var(--text); padding:10px 12px; border-radius:12px; font-weight:600;}
+    .btn:active{transform:scale(.99)}
+    .btn.primary{background:rgba(54,211,153,.14); border-color:rgba(54,211,153,.35)}
+    .btn.danger{background:rgba(251,113,133,.12); border-color:rgba(251,113,133,.35)}
+    .btn:disabled{opacity:.5; cursor:not-allowed}
+    .grid{display:grid; grid-template-columns:1fr; gap:10px; padding:10px 12px 12px}
+    .card{background:rgba(255,255,255,.04); border:1px solid var(--border); border-radius:16px; padding:12px;}
+    #map{height:52vh; border-radius:16px; overflow:hidden; border:1px solid var(--border);}
+    label{display:block; font-size:12px; color:var(--muted); margin-bottom:6px}
+    input{width:100%; padding:10px 12px; border-radius:12px; border:1px solid var(--border); background:rgba(255,255,255,.05); color:var(--text); outline:none}
+    input::placeholder{color:rgba(159,176,208,.65)}
+    .two{display:grid; grid-template-columns: 1fr 1fr; gap:10px}
+    .big{font-size:16px; font-weight:800; margin:0 0 6px}
+    .muted{color:var(--muted); font-size:12px; line-height:1.35}
+    .kpi{display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:8px}
+    .kpi > div{padding:10px; border:1px solid var(--border); border-radius:14px; background:rgba(255,255,255,.03)}
+    .kpi .v{font-weight:900; font-size:14px}
+    .kpi .l{font-size:11px; color:var(--muted)}
+    .navbox{display:flex; gap:10px; align-items:center; justify-content:space-between}
+    .navleft{min-width:0}
+    .navtitle{font-weight:900; font-size:15px; margin:0}
+    .navsub{margin:4px 0 0; font-size:12px; color:var(--muted)}
+    .tag{font-size:12px; font-weight:800; padding:6px 10px; border-radius:999px; border:1px solid var(--border); background:rgba(255,255,255,.03)}
+    .tag.ok{border-color:rgba(54,211,153,.4); background:rgba(54,211,153,.12)}
+    .tag.warn{border-color:rgba(251,191,36,.45); background:rgba(251,191,36,.12)}
+    .tag.bad{border-color:rgba(251,113,133,.45); background:rgba(251,113,133,.12)}
+    .footer{padding:0 12px 14px; color:var(--muted); font-size:12px}
+    .smallbtn{padding:8px 10px; border-radius:12px}
+    @media (max-width: 520px){
+      .kpi{grid-template-columns: repeat(2, minmax(0,1fr))}
+      .two{grid-template-columns: 1fr}
+      #map{height:50vh}
+    }
+  </style>
+</head>
+<body>
+<header>
+  <div class="row" style="justify-content:space-between">
+    <div class="row">
+      <div class="pill"><b>NeuralNav</b> · PWA</div>
+      <div id="gpsState" class="pill">GPS: —</div>
+      <div id="snapState" class="pill">Snap: —</div>
+    </div>
+    <div class="row">
+      <button class="btn smallbtn" id="btnInstall" style="display:none">Instalar</button>
+      <button class="btn smallbtn" id="btnCenter">Centrar</button>
+    </div>
+  </div>
+</header>
+
+<div class="grid">
+  <div id="map"></div>
+
+  <div class="card">
+    <div class="navbox">
+      <div class="navleft">
+        <p class="navtitle" id="navTitle">Sin ruta</p>
+        <p class="navsub" id="navSub">Marca origen/destino en el mapa o pega coords.</p>
+      </div>
+      <div id="navTag" class="tag">—</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <p class="big">Ruta</p>
+    <div class="two">
+      <div>
+        <label>Origen (lat,lng)</label>
+        <input id="origin" placeholder="Ej: 19.4326,-99.1332" />
+      </div>
+      <div>
+        <label>Destino (lat,lng)</label>
+        <input id="dest" placeholder="Ej: 19.3910,-99.1607" />
+      </div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn primary" id="btnRoute">Calcular ruta</button>
+      <button class="btn" id="btnPickA">Elegir origen</button>
+      <button class="btn" id="btnPickB">Elegir destino</button>
+      <button class="btn danger" id="btnClear">Borrar</button>
+    </div>
+    <p class="muted" style="margin:10px 0 0">
+      Consejo: para “no fallar salidas”, esta app hace <b>snap a la ruta</b> y anuncia maniobras.
+    </p>
+  </div>
+
+  <div class="card">
+    <p class="big">Seguimiento</p>
+    <div class="kpi">
+      <div><div class="v" id="kSpd">—</div><div class="l">Velocidad</div></div>
+      <div><div class="v" id="kAcc">—</div><div class="l">Precisión</div></div>
+      <div><div class="v" id="kHead">—</div><div class="l">Rumbo</div></div>
+      <div><div class="v" id="kNext">—</div><div class="l">Siguiente</div></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn primary" id="btnStart">Iniciar GPS</button>
+      <button class="btn" id="btnStop" disabled>Detener</button>
+      <button class="btn" id="btnVoice">Voz: ON</button>
+    </div>
+    <p class="muted" style="margin:10px 0 0">
+      Privacidad: tu ubicación se usa localmente. La ruta se calcula con OSRM (envía origen/destino).
+    </p>
+  </div>
+</div>
+
+<div class="footer">
+  Para que sea PWA: sirve esto por <b>HTTPS</b> (o localhost). En Android Chrome: “Agregar a pantalla de inicio”.
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script>
+(() => {
+  // ---------- PWA install + SW ----------
+  let deferredPrompt = null;
+  const btnInstall = document.getElementById('btnInstall');
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    btnInstall.style.display = 'inline-block';
+  });
+  btnInstall.addEventListener('click', async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    btnInstall.style.display = 'none';
+  });
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
+  }
+
+  // ---------- UI ----------
+  const gpsState = document.getElementById('gpsState');
+  const snapState = document.getElementById('snapState');
+
+  const navTitle = document.getElementById('navTitle');
+  const navSub   = document.getElementById('navSub');
+  const navTag   = document.getElementById('navTag');
+
+  const kSpd  = document.getElementById('kSpd');
+  const kAcc  = document.getElementById('kAcc');
+  const kHead = document.getElementById('kHead');
+  const kNext = document.getElementById('kNext');
+
+  const originInput = document.getElementById('origin');
+  const destInput   = document.getElementById('dest');
+
+  const btnRoute = document.getElementById('btnRoute');
+  const btnPickA = document.getElementById('btnPickA');
+  const btnPickB = document.getElementById('btnPickB');
+  const btnClear = document.getElementById('btnClear');
+
+  const btnStart = document.getElementById('btnStart');
+  const btnStop  = document.getElementById('btnStop');
+  const btnVoice = document.getElementById('btnVoice');
+  const btnCenter= document.getElementById('btnCenter');
+
+  // ---------- Map ----------
+  const map = L.map('map', { zoomControl: true }).setView([19.4326, -99.1332], 12);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap'
+  }).addTo(map);
+
+  let markerMe = L.circleMarker([19.4326, -99.1332], { radius: 7, weight: 2, fillOpacity: .9 });
+  markerMe.addTo(map);
+
+  let markerA = null, markerB = null;
+  let routeLine = null;
+  let routeCoords = []; // [lat,lng]
+  let routeSteps = [];  // OSRM steps
+  let stepIndex = 0;
+
+  // Pick mode
+  let pickMode = null; // 'A'|'B'
+  map.on('click', (e) => {
+    if (!pickMode) return;
+    const ll = e.latlng;
+    const str = `${ll.lat.toFixed(6)},${ll.lng.toFixed(6)}`;
+    if (pickMode === 'A') originInput.value = str;
+    if (pickMode === 'B') destInput.value = str;
+    pickMode = null;
+    btnPickA.textContent = 'Elegir origen';
+    btnPickB.textContent = 'Elegir destino';
+  });
+
+  btnPickA.onclick = () => {
+    pickMode = (pickMode === 'A') ? null : 'A';
+    btnPickA.textContent = pickMode === 'A' ? 'Toca el mapa…' : 'Elegir origen';
+    btnPickB.textContent = 'Elegir destino';
+  };
+  btnPickB.onclick = () => {
+    pickMode = (pickMode === 'B') ? null : 'B';
+    btnPickB.textContent = pickMode === 'B' ? 'Toca el mapa…' : 'Elegir destino';
+    btnPickA.textContent = 'Elegir origen';
+  };
+
+  // ---------- Helpers ----------
+  const toRad = d => d * Math.PI / 180;
+  function haversine(a, b){
+    const R = 6371000;
+    const dLat = toRad(b[0]-a[0]);
+    const dLng = toRad(b[1]-a[1]);
+    const s1 = Math.sin(dLat/2), s2 = Math.sin(dLng/2);
+    const c = s1*s1 + Math.cos(toRad(a[0]))*Math.cos(toRad(b[0]))*s2*s2;
+    return 2*R*Math.asin(Math.sqrt(c));
+  }
+  function parseLatLng(str){
+    const m = (str||'').split(',').map(s => parseFloat(s.trim()));
+    if (m.length !== 2 || !isFinite(m[0]) || !isFinite(m[1])) return null;
+    return [m[0], m[1]];
+  }
+
+  // Project point to polyline (simple map-matching)
+  // Returns {snap:[lat,lng], distToRouteMeters, segIndex, t}
+  function snapToRoute(p, line){
+    if (!line || line.length < 2) return null;
+    // Convert to local meters using equirectangular approximation around p
+    const lat0 = toRad(p[0]);
+    const mPerDegLat = 111132.92;
+    const mPerDegLng = 111412.84 * Math.cos(lat0);
+
+    function toXY(ll){
+      return {
+        x: (ll[1]-p[1]) * mPerDegLng,
+        y: (ll[0]-p[0]) * mPerDegLat
+      };
+    }
+    let best = { d2: Infinity, snap: p, seg: 0, t: 0 };
+    for (let i=0;i<line.length-1;i++){
+      const a = line[i], b = line[i+1];
+      const A = toXY(a), B = toXY(b);
+      const vx = B.x - A.x, vy = B.y - A.y;
+      const wx = -A.x, wy = -A.y; // p is origin (0,0)
+      const len2 = vx*vx + vy*vy;
+      let t = len2 > 0 ? (wx*vx + wy*vy)/len2 : 0;
+      t = Math.max(0, Math.min(1, t));
+      const px = A.x + t*vx;
+      const py = A.y + t*vy;
+      const d2 = px*px + py*py;
+      if (d2 < best.d2){
+        const snapLat = p[0] + (py / mPerDegLat);
+        const snapLng = p[1] + (px / mPerDegLng);
+        best = { d2, snap:[snapLat, snapLng], seg:i, t };
+      }
+    }
+    return { snap: best.snap, distToRouteMeters: Math.sqrt(best.d2), segIndex: best.seg, t: best.t };
+  }
+
+  // ---------- Voice ----------
+  let voiceOn = true;
+  btnVoice.onclick = () => {
+    voiceOn = !voiceOn;
+    btnVoice.textContent = `Voz: ${voiceOn ? 'ON' : 'OFF'}`;
+  };
+  function speak(text){
+    try{
+      if (!voiceOn) return;
+      if (!('speechSynthesis' in window)) return;
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'es-MX';
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(u);
+    }catch(_){}
+  }
+
+  // ---------- Route via OSRM ----------
+  async function buildRoute(){
+    const A = parseLatLng(originInput.value);
+    const B = parseLatLng(destInput.value);
+    if (!A || !B){
+      navTitle.textContent = 'Faltan coordenadas';
+      navSub.textContent = 'Escribe origen/destino como: lat,lng';
+      navTag.textContent = '—';
+      return;
+    }
+
+    // Markers
+    if (markerA) map.removeLayer(markerA);
+    if (markerB) map.removeLayer(markerB);
+    markerA = L.marker(A).addTo(map).bindPopup('Origen');
+    markerB = L.marker(B).addTo(map).bindPopup('Destino');
+
+    navTitle.textContent = 'Calculando ruta…';
+    navSub.textContent = 'Usando OSRM';
+    navTag.textContent = '…';
+
+    const url = `https://router.project-osrm.org/route/v1/driving/${A[1]},${A[0]};${B[1]},${B[0]}?overview=full&geometries=geojson&steps=true`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('OSRM no respondió');
+    const data = await res.json();
+    const r = data.routes?.[0];
+    if (!r) throw new Error('Sin ruta');
+
+    // GeoJSON coords come as [lng,lat]
+    routeCoords = r.geometry.coordinates.map(c => [c[1], c[0]]);
+    routeSteps = (r.legs?.[0]?.steps || []).map(s => ({
+      name: s.name || '',
+      maneuver: s.maneuver?.type || '',
+      modifier: s.maneuver?.modifier || '',
+      location: [s.maneuver.location[1], s.maneuver.location[0]],
+      distance: s.distance || 0,
+      instruction: makeInstruction(s)
+    }));
+    stepIndex = 0;
+
+    // Draw line
+    if (routeLine) map.removeLayer(routeLine);
+    routeLine = L.polyline(routeCoords, { weight: 5, opacity: .9 }).addTo(map);
+    map.fitBounds(routeLine.getBounds(), { padding: [20, 20] });
+
+    // Save last route
+    localStorage.setItem('nn_last_route', JSON.stringify({ A, B, routeCoords, routeSteps }));
+
+    navTitle.textContent = 'Ruta lista';
+    navSub.textContent = `${Math.round(r.distance/1000)} km · ${Math.round(r.duration/60)} min (estimado)`;
+    navTag.textContent = 'OK';
+    navTag.className = 'tag ok';
+
+    updateNextStepUI();
+    speak('Ruta lista. Iniciando navegación.');
+  }
+
+  function makeInstruction(step){
+    const t = step.maneuver?.type || '';
+    const mod = step.maneuver?.modifier || '';
+    const name = step.name || '';
+    // Simple Spanish-ish instruction
+    if (t === 'depart') return `Inicia hacia ${name || 'la ruta'}.`;
+    if (t === 'arrive') return `Llegaste a tu destino.`;
+    if (t === 'roundabout') return `En la glorieta, toma la salida hacia ${name || 'tu ruta'}.`;
+    if (t === 'merge') return `Incorpórate ${mod ? '('+mod+')' : ''}.`;
+    if (t === 'off ramp') return `Toma la salida ${name ? 'hacia ' + name : ''}.`;
+    if (t === 'on ramp') return `Toma la incorporación ${name ? 'hacia ' + name : ''}.`;
+    if (t === 'turn') return `Gira ${mod || ''} ${name ? 'hacia ' + name : ''}.`.replace(/\s+/g,' ').trim();
+    if (t === 'continue') return `Continúa ${name ? 'por ' + name : ''}.`.replace(/\s+/g,' ').trim();
+    if (t === 'fork') return `En la bifurcación, toma ${mod || 'tu lado'} ${name ? 'hacia ' + name : ''}.`.replace(/\s+/g,' ').trim();
+    return `${t} ${mod} ${name}`.trim() || 'Siguiente maniobra';
+  }
+
+  function updateNextStepUI(){
+    if (!routeSteps.length){
+      kNext.textContent = '—';
+      navTitle.textContent = 'Sin pasos';
+      return;
+    }
+    const s = routeSteps[Math.min(stepIndex, routeSteps.length-1)];
+    kNext.textContent = `${Math.round(s.distance)} m`;
+    navTitle.textContent = s.instruction || 'Siguiente maniobra';
+    navSub.textContent = s.name ? `Vía: ${s.name}` : '—';
+  }
+
+  btnRoute.onclick = async () => {
+    try { await buildRoute(); }
+    catch (e){
+      navTitle.textContent = 'Error de ruta';
+      navSub.textContent = String(e?.message || e);
+      navTag.textContent = 'ERR';
+      navTag.className = 'tag bad';
+    }
+  };
+
+  btnClear.onclick = () => {
+    originInput.value = '';
+    destInput.value = '';
+    routeCoords = [];
+    routeSteps = [];
+    stepIndex = 0;
+    if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+    if (markerA) { map.removeLayer(markerA); markerA = null; }
+    if (markerB) { map.removeLayer(markerB); markerB = null; }
+    localStorage.removeItem('nn_last_route');
+    navTitle.textContent = 'Sin ruta';
+    navSub.textContent = 'Marca origen/destino en el mapa o pega coords.';
+    navTag.textContent = '—';
+    navTag.className = 'tag';
+    snapState.textContent = 'Snap: —';
+  };
+
+  // Restore last route
+  try{
+    const last = JSON.parse(localStorage.getItem('nn_last_route') || 'null');
+    if (last?.A && last?.B && last?.routeCoords){
+      originInput.value = `${last.A[0].toFixed(6)},${last.A[1].toFixed(6)}`;
+      destInput.value   = `${last.B[0].toFixed(6)},${last.B[1].toFixed(6)}`;
+      routeCoords = last.routeCoords;
+      routeSteps  = last.routeSteps || [];
+      if (routeLine) map.removeLayer(routeLine);
+      routeLine = L.polyline(routeCoords, { weight: 5, opacity: .9 }).addTo(map);
+      markerA = L.marker(last.A).addTo(map).bindPopup('Origen');
+      markerB = L.marker(last.B).addTo(map).bindPopup('Destino');
+      map.fitBounds(routeLine.getBounds(), { padding: [20,20] });
+      navTitle.textContent = 'Ruta restaurada';
+      navSub.textContent = 'Lista para navegar';
+      navTag.textContent = 'OK';
+      navTag.className = 'tag ok';
+      updateNextStepUI();
+    }
+  }catch(_){}
+
+  // ---------- GPS tracking ----------
+  let watchId = null;
+  let lastSpeak = { step:-1, at:0 };
+
+  function setGpsUI(on){
+    gpsState.textContent = `GPS: ${on ? 'ON' : 'OFF'}`;
+  }
+
+  btnStart.onclick = async () => {
+    if (!('geolocation' in navigator)){
+      navTitle.textContent = 'Este navegador no soporta GPS';
+      navTag.textContent = 'ERR';
+      navTag.className = 'tag bad';
+      return;
+    }
+    btnStart.disabled = true;
+    btnStop.disabled = false;
+    setGpsUI(true);
+
+    watchId = navigator.geolocation.watchPosition(onPos, onErr, {
+      enableHighAccuracy: true,
+      maximumAge: 500,
+      timeout: 10000
+    });
+  };
+
+  btnStop.onclick = () => {
+    if (watchId != null) navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+    btnStart.disabled = false;
+    btnStop.disabled = true;
+    setGpsUI(false);
+    snapState.textContent = 'Snap: —';
+  };
+
+  btnCenter.onclick = () => {
+    const ll = markerMe.getLatLng();
+    map.setView([ll.lat, ll.lng], Math.max(map.getZoom(), 16));
+  };
+
+  function onErr(err){
+    navTitle.textContent = 'Error GPS';
+    navSub.textContent = err?.message || 'No se pudo leer ubicación';
+    navTag.textContent = 'GPS';
+    navTag.className = 'tag bad';
+    btnStart.disabled = false;
+    btnStop.disabled = true;
+    setGpsUI(false);
+  }
+
+  function onPos(pos){
+    const lat = pos.coords.latitude;
+    const lng = pos.coords.longitude;
+    const acc = pos.coords.accuracy ?? null;
+    const spd = pos.coords.speed ?? null;
+    const head = pos.coords.heading ?? null;
+
+    // Raw location
+    const raw = [lat, lng];
+
+    // Snap to route if available
+    let shown = raw;
+    let snapInfo = null;
+    if (routeCoords.length > 2){
+      snapInfo = snapToRoute(raw, routeCoords);
+      // Only snap if reasonably close (helps avoid snapping to wrong road)
+      if (snapInfo && snapInfo.distToRouteMeters <= Math.max(25, (acc || 10) * 1.2)){
+        shown = snapInfo.snap;
+        snapState.textContent = `Snap: ${Math.round(snapInfo.distToRouteMeters)} m`;
+      } else {
+        snapState.textContent = `Snap: fuera`;
+      }
+    } else {
+      snapState.textContent = 'Snap: —';
+    }
+
+    markerMe.setLatLng(shown);
+
+    // UI KPIs
+    kAcc.textContent  = acc ? `${Math.round(acc)} m` : '—';
+    kSpd.textContent  = (spd != null && isFinite(spd)) ? `${Math.round(spd*3.6)} km/h` : '—';
+    kHead.textContent = (head != null && isFinite(head)) ? `${Math.round(head)}°` : '—';
+
+    // Navigation logic: next step based on distance to step maneuver location
+    if (routeSteps.length){
+      // Find next step that is ahead-ish: we keep stepIndex and advance when close
+      let s = routeSteps[Math.min(stepIndex, routeSteps.length-1)];
+      const dToStep = haversine(shown, s.location);
+
+      // Announce alerts
+      const now = Date.now();
+      const announce = (meters, text) => {
+        // Avoid spamming
+        if (lastSpeak.step === stepIndex && (now - lastSpeak.at) < 12000) return;
+        lastSpeak = { step: stepIndex, at: now };
+        navTag.textContent = meters <= 80 ? 'YA' : 'ALERTA';
+        navTag.className = meters <= 80 ? 'tag warn' : 'tag ok';
+        speak(text);
+      };
+
+      // Update UI with next instruction + distance
+      kNext.textContent = `${Math.round(dToStep)} m`;
+      navTitle.textContent = s.instruction;
+      navSub.textContent = (s.name ? `Vía: ${s.name}` : '') + ` · En ${Math.round(dToStep)} m`;
+
+      if (dToStep < 35){
+        // Reached step, advance
+        stepIndex = Math.min(stepIndex + 1, routeSteps.length-1);
+        updateNextStepUI();
+        // If arrive
+        if (routeSteps[stepIndex]?.maneuver === 'arrive') {
+          navTag.textContent = 'FIN';
+          navTag.className = 'tag ok';
+          speak('Llegaste a tu destino.');
+        }
+      } else if (dToStep < 250){
+        // Pre-alert window
+        if (dToStep < 90) announce(dToStep, `Ahora: ${s.instruction}`);
+        else if (dToStep < 200) announce(dToStep, `En ${Math.round(dToStep)} metros: ${s.instruction}`);
+      }
+    }
+  }
+})();
+</script>
+</body>
+</html>
