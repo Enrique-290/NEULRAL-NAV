@@ -1,5 +1,5 @@
 /* NeuralNav PWA v2 - offline shell + cache tiles */
-const CACHE_VERSION = 'neuralnav-v3';
+const CACHE_VERSION = 'neuralnav-v4';
 const APP_SHELL = ['./','./index.html','./manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {

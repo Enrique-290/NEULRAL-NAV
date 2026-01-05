@@ -38,7 +38,11 @@
       top: env(safe-area-inset-top);
       padding: 12px 12px 10px;
       z-index: 50;
-      pointer-events:none;
+      pointer-events:auto;
+    
+      display:flex;
+      flex-direction:column;
+      gap:10px;
     }
     .brandrow{
       display:flex; align-items:center; justify-content:space-between;
@@ -106,6 +110,8 @@
       overflow:auto;
       padding-bottom:6px;
       pointer-events:auto;
+    
+      flex-wrap: nowrap;
     }
     .chip{
       flex: 0 0 auto;
@@ -134,7 +140,7 @@
       right: 12px;
       top: calc(env(safe-area-inset-top) + 96px);
       z-index: 45;
-      pointer-events:none;
+      pointer-events:auto;
     }
     .instrCard{
       pointer-events:auto;
@@ -207,7 +213,7 @@
       display:flex;
       flex-direction:column;
       gap:10px;
-      pointer-events:none;
+      pointer-events:auto;
     }
     .fabStack .iconbtn{pointer-events:auto}
 
@@ -330,7 +336,7 @@
       z-index: 42;
       display:flex;
       gap:10px;
-      pointer-events:none;
+      pointer-events:auto;
     }
     .miniPill{
       pointer-events:auto;
@@ -408,6 +414,16 @@
     .sHint{padding: 10px 12px; color: rgba(169,187,220,.9); font-weight: 800; font-size: 12px;}
     body.searching .chiprow{display:none;}
     body.searching .statusPills{opacity:.35;}
+
+  
+    @media (orientation: landscape){
+      .topbar{padding: 8px 10px 6px; gap:8px;}
+      .search{padding: 9px 11px;}
+      .chiprow{margin-top: 0; padding-bottom: 4px;}
+    }
+
+  
+    body.searching .sheet{transform: translateY(60%);}
 
   </style>
 </head>
@@ -877,10 +893,13 @@
       debounceT = setTimeout(onQueryChanged, 260);
     });
     q.addEventListener('focus', () => {
-      if (q.value.trim()) {
-        clearTimeout(debounceT);
-        debounceT = setTimeout(onQueryChanged, 0);
+      setSearching(true);
+      if (!q.value.trim()){
+        suggestions.innerHTML = `<div class="sHint">Escribe el destino… (ej. "Calle Pino", "Estadio Neza 86")</div>`;
+        return;
       }
+      clearTimeout(debounceT);
+      debounceT = setTimeout(onQueryChanged, 0);
     });
     q.addEventListener('blur', () => {
       setTimeout(() => { if (document.activeElement !== q) setSearching(false); }, 180);
