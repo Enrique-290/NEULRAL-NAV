@@ -370,6 +370,45 @@
       .topbar{left: calc(50% - 360px); right: calc(50% - 360px);}
       .sheetInner{margin-left:auto; margin-right:auto; max-width: 720px;}
     }
+  
+    /* Suggestions (autocomplete) */
+    .suggestions{
+      margin-top: 10px;
+      border-radius: 18px;
+      border: 1px solid var(--stroke);
+      background: linear-gradient(180deg, rgba(10,16,30,.78), rgba(10,16,30,.62));
+      backdrop-filter: blur(14px);
+      box-shadow: 0 18px 40px rgba(0,0,0,.45);
+      overflow:hidden;
+      pointer-events:auto;
+      max-height: 48vh;
+      display:none;
+    }
+    .suggestions.show{display:block;}
+    .suggItem{
+      padding: 12px 12px;
+      display:flex;
+      gap:12px;
+      align-items:flex-start;
+      cursor:pointer;
+      border-bottom: 1px solid rgba(255,255,255,.10);
+    }
+    .suggItem:last-child{border-bottom:none;}
+    .sIcon{
+      width:34px;height:34px;border-radius:14px;
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.10);
+      display:grid;place-items:center;
+      flex: 0 0 auto;
+      margin-top: 1px;
+    }
+    .sMain{font-weight: 950; line-height: 1.15;}
+    .sSub{margin-top:4px; color: rgba(169,187,220,.92); font-size: 12px; font-weight: 800;}
+    .sDist{margin-left:auto; color: rgba(234,240,255,.92); font-weight: 950; font-size: 12px; opacity: .9; white-space:nowrap;}
+    .sHint{padding: 10px 12px; color: rgba(169,187,220,.9); font-weight: 800; font-size: 12px;}
+    body.searching .chiprow{display:none;}
+    body.searching .statusPills{opacity:.35;}
+
   </style>
 </head>
 <body>
@@ -404,7 +443,8 @@
       <div class="iconbtn" id="btnVoice" title="Voz (TTS)">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 1 1-6 0V6a3 3 0 0 1 3-3Z" stroke="white" stroke-width="2"/><path d="M19 11a7 7 0 0 1-14 0" stroke="white" stroke-width="2" stroke-linecap="round"/><path d="M12 18v3" stroke="white" stroke-width="2" stroke-linecap="round"/></svg>
       </div>
-    </div>
+    
+    <div class="suggestions" id="suggestions" aria-label="Sugerencias"></div>
 
     <div class="chiprow">
       <div class="chip secondary" id="chipMyPos">Mi ubicación</div>
@@ -531,6 +571,7 @@
     let stepIndex = 0;
 
     const q = document.getElementById('q');
+    const suggestions = document.getElementById('suggestions');
     const chipMyPos = document.getElementById('chipMyPos');
     const routesRow = document.getElementById('routesRow');
     const btnRoute = document.getElementById('btnRoute');
@@ -640,6 +681,7 @@
 
     document.querySelectorAll('[data-poi]').forEach(ch => {
       ch.addEventListener('click', async () => {
+        setSearching(false);
         document.querySelectorAll('[data-poi]').forEach(x=>x.classList.remove('active'));
         ch.classList.add('active');
         const type = ch.getAttribute('data-poi');
@@ -654,8 +696,8 @@
     });
 
     async function nominatimGeocode(query){
-      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(query)}`;
-      const res = await fetch(url, { headers: { 'Accept':'application/json' }});
+      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=8&addressdetails=1&q=${encodeURIComponent(query)}`;
+      const res = await fetch(url, { headers: { 'Accept':'application/json', 'Accept-Language':'es' }});
       const j = await res.json();
       return j.map(x => ({ lat: parseFloat(x.lat), lon: parseFloat(x.lon), display_name: x.display_name }));
     }
@@ -665,6 +707,98 @@
       const j = await res.json();
       return j.map(x => ({ lat: parseFloat(x.lat), lon: parseFloat(x.lon), display_name: x.display_name }));
     }
+
+
+    function setSearching(on){
+      document.body.classList.toggle('searching', !!on);
+      suggestions.classList.toggle('show', !!on);
+      if (!on) suggestions.innerHTML = '';
+    }
+
+    function splitTitle(display_name){
+      const parts = (display_name || '').split(',').map(s=>s.trim()).filter(Boolean);
+      const title = parts.slice(0,2).join(', ') || display_name || 'Resultado';
+      const sub = parts.slice(2,6).join(', ');
+      return { title, sub };
+    }
+
+    function renderSuggestions(list){
+      if (!list || !list.length){
+        suggestions.innerHTML = `<div class="sHint">Sin resultados. Escribe más o revisa la ortografía.</div>`;
+        return;
+      }
+      const me = markerMe.getLatLng();
+      const meLL = [me.lat, me.lng];
+
+      suggestions.innerHTML = '';
+      list.slice(0,8).forEach((it, idx) => {
+        const { title, sub } = splitTitle(it.display_name);
+        const d = haversine(meLL, [it.lat, it.lon]);
+        const distTxt = d >= 1000 ? `${(d/1000).toFixed(1)} km` : `${Math.round(d)} m`;
+
+        const row = document.createElement('div');
+        row.className = 'suggItem';
+        row.innerHTML = `
+          <div class="sIcon" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M12 21s7-7 7-12a7 7 0 1 0-14 0c0 5 7 12 7 12Z" stroke="white" stroke-width="2"/>
+              <circle cx="12" cy="9" r="2.5" stroke="white" stroke-width="2"/>
+            </svg>
+          </div>
+          <div style="min-width:0">
+            <div class="sMain" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>
+            <div class="sSub" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sub || ''}</div>
+          </div>
+          <div class="sDist">${distTxt}</div>
+        `;
+        row.addEventListener('click', () => pickSuggestion(it));
+        suggestions.appendChild(row);
+
+        if (idx === 0){
+          const hint = document.createElement('div');
+          hint.className = 'sHint';
+          hint.textContent = 'Tip: presiona Enter para elegir el primero.';
+          suggestions.appendChild(hint);
+        }
+      });
+    }
+
+    function pickSuggestion(it){
+      destLL = [it.lat, it.lon];
+      if (markerDest) map.removeLayer(markerDest);
+      markerDest = L.marker(destLL).addTo(map).bindPopup(it.display_name);
+      markerDest.openPopup();
+      map.setView(destLL, 16, { animate:true });
+      instrMain.textContent = 'Destino listo';
+      instrRoad.textContent = (it.display_name || '').slice(0, 40);
+      instrLane.textContent = '—';
+      instrMeters.textContent = '—';
+      showInstr(true);
+      setSearching(false);
+      speak('Destino listo');
+    }
+
+    let debounceT = null;
+    async function onQueryChanged(){
+      const query = q.value.trim();
+      if (!query){
+        setSearching(false);
+        return;
+      }
+      setSearching(true);
+      suggestions.innerHTML = `<div class="sHint">Buscando…</div>`;
+
+      try{
+        const list = await nominatimGeocode(query);
+        const me = markerMe.getLatLng();
+        const meLL = [me.lat, me.lng];
+        list.sort((a,b) => haversine(meLL, [a.lat,a.lon]) - haversine(meLL,[b.lat,b.lon]));
+        renderSuggestions(list);
+      }catch(e){
+        suggestions.innerHTML = `<div class="sHint">Error buscando. Intenta de nuevo.</div>`;
+      }
+    }
+
 
     function makeInstruction(step){
       const t = step.maneuver?.type || '';
@@ -738,32 +872,52 @@
       return 0;
     }
 
+    q.addEventListener('input', () => {
+      clearTimeout(debounceT);
+      debounceT = setTimeout(onQueryChanged, 260);
+    });
+    q.addEventListener('focus', () => {
+      if (q.value.trim()) {
+        clearTimeout(debounceT);
+        debounceT = setTimeout(onQueryChanged, 0);
+      }
+    });
+    q.addEventListener('blur', () => {
+      setTimeout(() => { if (document.activeElement !== q) setSearching(false); }, 180);
+    });
     q.addEventListener('keydown', async (e) => {
+      if (e.key === 'Escape') {
+        setSearching(false);
+        q.blur();
+        return;
+      }
       if (e.key !== 'Enter') return;
       const query = q.value.trim();
       if (!query) return;
+
+      // If suggestions are open, pick the first result
+      if (suggestions.classList.contains('show')) {
+        const list = await nominatimGeocode(query);
+        if (list && list.length){
+          pickSuggestion(list[0]);
+          return;
+        }
+      }
+
+      // Fallback: show status, then pick first
       instrMain.textContent = 'Buscando destino...';
       instrRoad.textContent = '—';
       instrLane.textContent = '—';
       instrMeters.textContent = '—';
       showInstr(true);
+
       const list = await nominatimGeocode(query);
       if (!list.length){
         instrMain.textContent = 'No encontré ese destino';
         speak('No encontré ese destino');
         return;
       }
-      const best = list[0];
-      destLL = [best.lat, best.lon];
-      if (markerDest) map.removeLayer(markerDest);
-      markerDest = L.marker(destLL).addTo(map).bindPopup(best.display_name);
-      markerDest.openPopup();
-      map.setView(destLL, 15, { animate:true });
-      instrMain.textContent = 'Destino listo';
-      instrRoad.textContent = best.display_name.slice(0, 40);
-      instrLane.textContent = '—';
-      instrMeters.textContent = '—';
-      speak('Destino listo');
+      pickSuggestion(list[0]);
     });
 
     btnRoute.addEventListener('click', async () => {
