@@ -1,18 +1,11 @@
-/* NeuralNav Service Worker (simple offline shell + tiles cache) */
-const CACHE_VERSION = 'neuralnav-v1';
-const APP_SHELL = [
-  './',
-  './index.html',
-  './manifest.webmanifest'
-];
+/* NeuralNav PWA v2 - offline shell + cache tiles */
+const CACHE_VERSION = 'neuralnav-v2';
+const APP_SHELL = ['./','./index.html','./manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_VERSION).then((cache) => cache.addAll(APP_SHELL))
-  );
+  event.waitUntil(caches.open(CACHE_VERSION).then(c => c.addAll(APP_SHELL)));
   self.skipWaiting();
 });
-
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
@@ -20,28 +13,19 @@ self.addEventListener('activate', (event) => {
     await self.clients.claim();
   })());
 });
-
-// Stale-while-revalidate for tiles + network-first for OSRM requests
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = new URL(req.url);
-
-  // Only handle GET
   if (req.method !== 'GET') return;
 
-  // OSRM route API: network-first
-  if (url.hostname.includes('router.project-osrm.org')) {
+  if (url.hostname.includes('router.project-osrm.org') || url.hostname.includes('nominatim.openstreetmap.org')) {
     event.respondWith(networkFirst(req));
     return;
   }
-
-  // OSM tiles: cache-first (keeps visited areas available)
-  if (url.hostname.includes('tile.openstreetmap.org')) {
+  if (url.hostname.includes('tile.openstreetmap.org') || url.hostname.includes('server.arcgisonline.com')) {
     event.respondWith(cacheFirst(req));
     return;
   }
-
-  // App shell: stale-while-revalidate
   event.respondWith(staleWhileRevalidate(req));
 });
 
@@ -53,7 +37,6 @@ async function cacheFirst(req){
   cache.put(req, fresh.clone());
   return fresh;
 }
-
 async function networkFirst(req){
   const cache = await caches.open(CACHE_VERSION);
   try{
@@ -65,7 +48,6 @@ async function networkFirst(req){
     return cached || new Response('Offline', { status: 503 });
   }
 }
-
 async function staleWhileRevalidate(req){
   const cache = await caches.open(CACHE_VERSION);
   const cached = await cache.match(req);
